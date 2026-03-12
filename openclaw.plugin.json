@@ -1,0 +1,93 @@
+{
+  "id": "napcat",
+  "channels": ["napcat"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "connection": {
+        "type": "object",
+        "title": "连接配置",
+        "properties": {
+          "wsUrl": { "type": "string", "title": "WebSocket 地址", "description": "NapCat WebSocket 地址，示例：ws://127.0.0.1:3001" },
+          "accessToken": { "type": "string", "title": "访问令牌", "description": "NapCat 访问令牌（Token）", "sensitive": true }
+        }
+      },
+      "messaging": {
+        "type": "object",
+        "title": "消息发送",
+        "properties": {
+          "blockStreaming": { "type": "boolean", "title": "启用分块发送" },
+          "textChunkLimit": { "type": "number", "title": "文本分块限制" },
+          "chunkMode": { "type": "string", "title": "分块模式" }
+        }
+      },
+      "typing": {
+        "type": "object",
+        "title": "输入状态",
+        "properties": {
+          "enabled": { "type": "boolean", "title": "启用输入状态" },
+          "privateChat": { "type": "string", "title": "私聊方式" },
+          "groupChat": { "type": "string", "title": "群聊方式" },
+          "nicknameSuffix": { "type": "string", "title": "群名片后缀" },
+          "delayMs": { "type": "number", "title": "延迟（毫秒）" }
+        }
+      },
+      "database": {
+        "type": "object",
+        "title": "数据库",
+        "properties": {
+          "type": { "type": "string", "title": "数据库类型" },
+          "path": { "type": "string", "title": "数据库路径" }
+        }
+      },
+      "trigger": {
+        "type": "object",
+        "title": "触发配置",
+        "properties": {
+          "enabled": { "type": "boolean", "title": "启用触发判断" },
+          "atBot": { "type": "boolean", "title": "被@时触发" },
+          "keywords": { "type": "string", "title": "触发关键词" }
+        }
+      },
+      "context": {
+        "type": "object",
+        "title": "上下文",
+        "properties": {
+          "enabled": { "type": "boolean", "title": "启用自动上下文" },
+          "messageCount": { "type": "number", "title": "上下文消息数量" }
+        }
+      },
+      "accessControl": {
+        "type": "object",
+        "title": "访问控制",
+        "properties": {
+          "enabled": { "type": "boolean", "title": "启用访问控制" },
+          "groupWhitelist": { "type": "string", "title": "群号白名单" },
+          "userBlacklist": { "type": "string", "title": "用户黑名单" },
+          "adminMode": {
+            "type": "object",
+            "title": "管理员模式",
+            "properties": {
+              "enabled": { "type": "boolean", "title": "启用管理员模式" },
+              "privateChat": { "type": "boolean", "title": "私聊管理员模式" },
+              "groupChat": { "type": "boolean", "title": "群聊管理员模式" }
+            }
+          }
+        }
+      },
+      "admins": {
+        "type": "string",
+        "title": "管理员 QQ 号"
+      },
+      "media": {
+        "type": "object",
+        "title": "媒体存储",
+        "properties": {
+          "sharedHostDir": { "type": "string", "title": "宿主机共享媒体目录" },
+          "sharedContainerDir": { "type": "string", "title": "容器内媒体目录" }
+        }
+      }
+    }
+  }
+}

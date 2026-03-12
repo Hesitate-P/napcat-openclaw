@@ -1,0 +1,39 @@
+{
+  "name": "@openclaw/napcat",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "基于 NapCatQQ 的完整功能 QQ 频道插件",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "openclaw",
+    "channel",
+    "napcat",
+    "qq",
+    "onebot"
+  ],
+  "author": "Hesitate_P",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "ws": "^8.16.0",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
