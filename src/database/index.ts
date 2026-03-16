@@ -468,13 +468,3 @@ export class DatabaseManager {
   }
 }
 
-// 导出单例（可选）
-let defaultManager: DatabaseManager | null = null;
-
-export function getDefaultManager(): DatabaseManager | null {
-  return defaultManager;
-}
-
-export function setDefaultManager(manager: DatabaseManager): void {
-  defaultManager = manager;
-}

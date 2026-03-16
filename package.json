@@ -8,8 +8,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "validate:schema": "node ./scripts/validate-plugin-schema.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/index.test.js",
+    "ci": "npm run validate:schema && npm run typecheck && npm run test && npm run build"
   },
   "keywords": [
     "openclaw",

@@ -181,64 +181,6 @@ export const NapCatConfigSchema = z.object({
 export type NapCatConfig = z.infer<typeof NapCatConfigSchema>;
 
 /**
- * 默认配置（嵌套结构）
- */
-export const DEFAULT_CONFIG: NapCatConfig = {
-  connection: {
-    wsUrl: '',
-    accessToken: '',
-  },
-  
-  messaging: {
-    blockStreaming: true,
-    textChunkLimit: 2000,
-    chunkMode: 'newline',
-  },
-  
-  typing: {
-    enabled: true,
-    privateChat: 'api',
-    groupChat: 'nickname',
-    nicknameSuffix: '（输入中）',
-    delayMs: 500,
-  },
-  
-  database: {
-    type: 'sqlite',
-    path: './napcat.db',
-  },
-  
-  trigger: {
-    enabled: true,
-    atBot: true,
-    keywords: '有鱼喵，猫猫，bot',
-  },
-  
-  context: {
-    enabled: true,
-    messageCount: 5,
-  },
-  
-  accessControl: {
-    enabled: false,
-    groupWhitelist: '',
-    userBlacklist: '',
-    adminMode: {
-      enabled: false,
-      privateChat: false,
-      groupChat: false,
-    },
-  },
-  
-  admins: '',
-  
-  media: {
-    sharedHostDir: '',
-    sharedContainerDir: '/openclaw_media',
-  },
-};
-
-/**
  * 验证配置
  */
 export function validateConfig(config: Partial<NapCatConfig>): { valid: boolean; errors: string[] } {
@@ -252,13 +194,6 @@ export function validateConfig(config: Partial<NapCatConfig>): { valid: boolean;
   }
   
   return { valid: true, errors: [] };
-}
-
-/**
- * 合并配置
- */
-export function mergeConfig(userConfig: Partial<NapCatConfig>): NapCatConfig {
-  return { ...DEFAULT_CONFIG, ...userConfig } as NapCatConfig;
 }
 
 /**

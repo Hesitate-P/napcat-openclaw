@@ -57,7 +57,7 @@ function cleanupExpiredCache(): void {
  * @param userId QQ 号
  * @returns 昵称，如果缓存未命中则返回 null
  */
-export function getCachedNickname(userId: number): string | null {
+function getCachedNickname(userId: number): string | null {
   const info = userCache.get(userId);
   if (info && Date.now() - info.timestamp < CACHE_CONFIG.TTL) {
     return info.card || info.nickname;
@@ -71,7 +71,7 @@ export function getCachedNickname(userId: number): string | null {
  * @param nickname 昵称
  * @param card 群名片（可选）
  */
-export function updateCache(
+function updateCache(
   userId: number,
   nickname: string,
   card?: string
@@ -165,69 +165,3 @@ export async function getUserNickname(
   }
 }
 
-/**
- * 批量获取用户昵称
- * 
- * @param client NapCat 客户端
- * @param userIds QQ 号数组
- * @param groupId 群 ID（可选）
- * @returns 映射表 { userId: nickname }
- */
-export async function getUserNicknames(
-  client: NapCatClient,
-  userIds: number[],
-  groupId?: number
-): Promise<Record<number, string>> {
-  const results: Record<number, string> = {};
-  
-  // 先处理缓存命中的
-  const toFetch: number[] = [];
-  for (const userId of userIds) {
-    const cached = getCachedNickname(userId);
-    if (cached) {
-      results[userId] = cached;
-    } else {
-      toFetch.push(userId);
-    }
-  }
-  
-  // 批量获取未命中的
-  if (toFetch.length > 0) {
-    await Promise.all(
-      toFetch.map(async (userId) => {
-        results[userId] = await getUserNickname(client, userId, groupId);
-      })
-    );
-  }
-  
-  return results;
-}
-
-/**
- * 清除缓存
- * @param userId 可选，清除指定用户缓存；不传则清除所有
- */
-export function clearCache(userId?: number): void {
-  if (userId !== undefined) {
-    userCache.delete(userId);
-    console.log(`[UserInfo] 清除缓存：${userId}`);
-  } else {
-    userCache.clear();
-    console.log('[UserInfo] 清除所有缓存');
-  }
-}
-
-/**
- * 获取缓存统计信息
- */
-export function getCacheStats(): { size: number; entries: Array<{ userId: number; nickname: string; age: string }> } {
-  const now = Date.now();
-  return {
-    size: userCache.size,
-    entries: Array.from(userCache.values()).map(info => ({
-      userId: info.userId,
-      nickname: info.card || info.nickname,
-      age: `${Math.round((now - info.timestamp) / 1000)}s`,
-    })),
-  };
-}

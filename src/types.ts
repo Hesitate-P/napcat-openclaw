@@ -215,94 +215,13 @@ export interface GroupMemberRecord {
   speak_count?: number;
 }
 
-// ============================================================================
-// 插件配置类型
-// ============================================================================
-
-/**
- * 插件配置
- */
-export interface NapCatChannelConfig {
-  wsUrl: string;
-  accessToken: string;
-  blockStreaming?: boolean;
-  textChunkLimit?: number;
-  chunkMode?: 'length' | 'newline' | 'paragraph';
-  typingIndicator?: {
-    enabled?: boolean;
-    privateChat?: 'api' | 'none';
-    groupChat?: 'nickname' | 'none';
-    nicknameSuffix?: string;
-    delayMs?: number;
-  };
-  database?: {
-    type: 'sqlite';
-    path: string;
-  };
-  sharedMediaHostDir?: string;
-  sharedMediaContainerDir?: string;
-}
-
-// ============================================================================
-// 内部状态和工具类型
-// ============================================================================
-
 /**
  * 连接状态
  */
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
-/**
- * 消息队列项
- */
-export interface QueuedMessage {
-  to: string;
-  content: string;
-  elements?: Array<{ type: string; data: Record<string, unknown> }>;
-  priority: number;
-  timestamp: number;
+export interface NormalizedNapCatEventResult {
+  kind: 'heartbeat' | 'message' | 'other';
+  event?: NapCatMessageEvent | Record<string, unknown>;
+  eventType?: string;
 }
-
-/**
- * 输入状态跟踪
- */
-export interface TypingState {
-  isTyping: boolean;
-  timer?: NodeJS.Timeout;
-  originalCard?: string; // 群聊原始名片
-}
-
-/**
- * Block Streaming 配置
- */
-export interface BlockStreamingConfig {
-  enabled: boolean;
-  minChars: number;
-  maxChars: number;
-  breakPreference: 'paragraph' | 'sentence' | 'newline';
-  humanDelay: {
-    mode: 'off' | 'natural' | 'custom';
-    minMs: number;
-    maxMs: number;
-  };
-}
-
-// ============================================================================
-// 工具函数类型
-// ============================================================================
-
-/**
- * OpenClaw 会话键格式
- * chat_type:account_id:peer_id
- */
-export type SessionKey = string;
-
-/**
- * 聊天类型映射
- */
-export type ChatType = 'direct' | 'group';
-
-/**
- * 消息方向
- */
-export type MessageDirection = 'inbound' | 'outbound';
