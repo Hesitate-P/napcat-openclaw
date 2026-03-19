@@ -1,691 +1,314 @@
 /**
  * NapCat WebSocket 客户端
- * 
- * 实现与 NapCatQQ 的 WebSocket 连接，处理消息收发和自动重连
+ *
+ * 职责：WebSocket 连接管理、心跳、API 请求/响应。
+ * 不包含任何业务逻辑或消息格式转换——这些由上层模块（notice-handler.ts 等）负责。
  */
 
 import WebSocket from 'ws';
-import type { NapCatMessageEvent, NapCatApiRequest, NapCatApiResponse, ConnectionStatus } from './types.js';
+import type { NapCatMessageEvent, NapCatApiRequest, ConnectionStatus } from './types.js';
+import { handleNoticeEvent } from './event/notice-handler.js';
 
-/**
- * WebSocket 客户端配置
- */
 export interface NapCatClientConfig {
   wsUrl: string;
   accessToken: string;
-  heartbeatInterval?: number;    // 心跳间隔 (ms)
-  heartbeatTimeout?: number;     // 心跳超时 (ms)
-  reconnectDelay?: number;       // 重连延迟 (ms)
-  maxReconnectDelay?: number;    // 最大重连延迟 (ms)
+  /** 心跳发送间隔 (ms)，默认 45000 */
+  heartbeatInterval?: number;
+  /** 心跳超时阈值 (ms)，默认 180000 */
+  heartbeatTimeout?: number;
+  /** 初始重连延迟 (ms)，默认 1000 */
+  reconnectDelay?: number;
+  /** 最大重连延迟 (ms)，默认 30000 */
+  maxReconnectDelay?: number;
+  /** API 请求超时 (ms)，默认 30000 */
+  apiTimeout?: number;
 }
 
-/**
- * 事件处理器类型
- */
 export type EventHandler<T = unknown> = (data: T) => void | Promise<void>;
 
-/**
- * NapCat WebSocket 客户端
- */
 export class NapCatClient {
-  private config: NapCatClientConfig;
+  private readonly cfg: Required<NapCatClientConfig>;
   private ws: WebSocket | null = null;
   private status: ConnectionStatus = 'disconnected';
   private selfId: number | null = null;
-  private echoCounter = 0;
+  private echoSeq = 0;
   private pendingRequests = new Map<string, {
     resolve: (data: any) => void;
-    reject: (error: Error) => void;
-    timeout: NodeJS.Timeout;
+    reject:  (err: Error) => void;
+    timer:   ReturnType<typeof setTimeout>;
   }>();
-  private eventHandlers = new Map<string, Set<EventHandler>>();
-  private heartbeatTimer?: NodeJS.Timeout;
-  private heartbeatTimeoutTimer?: NodeJS.Timeout;
+  private handlers = new Map<string, Set<EventHandler>>();
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private heartbeatTimeoutTimer?: ReturnType<typeof setTimeout>;
   private reconnectAttempts = 0;
-  private botUserId: number | null = null;
+  private destroyed = false;
 
-  // 事件常量
-  static readonly EVENT_MESSAGE = 'message';
-  static readonly EVENT_CONNECTED = 'connected';
-  static readonly EVENT_DISCONNECTED = 'disconnected';
-  static readonly EVENT_ERROR = 'error';
+  static readonly EVENT_MESSAGE    = 'message';
+  static readonly EVENT_CONNECTED  = 'connect';
+  static readonly EVENT_DISCONNECTED = 'disconnect';
+  static readonly EVENT_ERROR      = 'error';
 
   constructor(config: NapCatClientConfig) {
-    this.config = {
-      wsUrl: config.wsUrl,
-      accessToken: config.accessToken,
-      heartbeatInterval: config.heartbeatInterval ?? 45000,  // 45 秒
-      heartbeatTimeout: config.heartbeatTimeout ?? 180000,   // 180 秒
-      reconnectDelay: config.reconnectDelay ?? 1000,
-      maxReconnectDelay: config.maxReconnectDelay ?? 30000,
+    this.cfg = {
+      wsUrl:              config.wsUrl,
+      accessToken:        config.accessToken,
+      heartbeatInterval:  config.heartbeatInterval  ?? 45_000,
+      heartbeatTimeout:   config.heartbeatTimeout   ?? 180_000,
+      reconnectDelay:     config.reconnectDelay      ?? 1_000,
+      maxReconnectDelay:  config.maxReconnectDelay   ?? 30_000,
+      apiTimeout:         config.apiTimeout          ?? 30_000,
     };
   }
 
-  /**
-   * 获取当前连接状态
-   */
-  getStatus(): ConnectionStatus {
-    return this.status;
-  }
+  // ── 公开状态查询 ────────────────────────────────────────────────────────────
 
-  /**
-   * 检查是否已连接
-   */
-  isConnected(): boolean {
-    return this.status === 'connected' && this.ws !== null;
-  }
+  getStatus():    ConnectionStatus { return this.status; }
+  isConnected():  boolean { return this.status === 'connected' && this.ws !== null; }
+  getSelfId():    number | null { return this.selfId; }
+  setSelfId(id:   number): void { this.selfId = id; }
 
-  /**
-   * 获取 Bot 用户 ID
-   */
-  getBotUserId(): number | null {
-    return this.botUserId;
-  }
+  // ── 生命周期 ─────────────────────────────────────────────────────────────────
 
-  /**
-   * 设置 Bot 用户 ID
-   */
-  setSelfId(id: number): void {
-    this.selfId = id;
-  }
-
-  /**
-   * 获取 Bot 用户 ID
-   */
-  getSelfId(): number | null {
-    return this.selfId;
-  }
-
-  /**
-   * 连接 WebSocket
-   */
   async connect(): Promise<void> {
-    if (this.status === 'connected' || this.status === 'connecting') {
-      return;
-    }
-
+    if (this.status === 'connected' || this.status === 'connecting') return;
+    if (this.destroyed) throw new Error('NapCatClient has been destroyed');
     this.setStatus('connecting');
-    console.log('[NapCatClient] 正在连接到:', this.config.wsUrl);
 
-    return new Promise((resolve, reject) => {
-      try {
-        const ws = new WebSocket(this.config.wsUrl, {
-          headers: {
-            'Authorization': `Bearer ${this.config.accessToken}`,
-          },
-        });
+    return new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(this.cfg.wsUrl, {
+        headers: { Authorization: `Bearer ${this.cfg.accessToken}` },
+      });
 
-        ws.on('open', () => {
-          console.log('[NapCatClient] WebSocket 连接成功');
-          this.setStatus('connected');
-          this.reconnectAttempts = 0;
-          this.startHeartbeat();
-          this.emit(NapCatClient.EVENT_CONNECTED);
-          resolve();
-        });
-
-        ws.on('message', (data: Buffer) => {
-          this.handleMessage(data);
-        });
-
-        ws.on('error', (error: Error) => {
-          console.error('[NapCatClient] WebSocket 错误:', error);
-          this.setStatus('disconnected');
-          this.emit(NapCatClient.EVENT_ERROR, error);
-          if (this.status === 'connecting') {
-            reject(error);
-          }
-        });
-
-        ws.on('close', (code: number, reason: Buffer) => {
-          console.log('[NapCatClient] WebSocket 关闭:', code, reason.toString());
-          this.setStatus('disconnected');
-          this.stopHeartbeat();
-          this.emit(NapCatClient.EVENT_DISCONNECTED, { code, reason: reason.toString() });
-          this.scheduleReconnect();
-        });
-
+      ws.once('open', () => {
         this.ws = ws;
-      } catch (error) {
-        this.setStatus('disconnected');
-        reject(error);
-      }
+        this.reconnectAttempts = 0;
+        this.setStatus('connected');
+        this.startHeartbeat();
+        this.emit(NapCatClient.EVENT_CONNECTED);
+        resolve();
+      });
+
+      ws.on('message', (data: Buffer) => this.onRawMessage(data));
+
+      ws.once('error', (err: Error) => {
+        if (this.status === 'connecting') reject(err);
+        this.emit(NapCatClient.EVENT_ERROR, err);
+        // handleClose 内部会判断 destroyed，安全调用
+        this.handleClose();
+      });
+
+      ws.once('close', () => this.handleClose());
+
+      this.ws = ws;
     });
   }
 
-  /**
-   * 断开连接
-   */
+  /** 主动断开并销毁，不再重连（由外部调用 logoutAccount 时使用）。 */
   disconnect(): void {
+    this.destroyed = true;
     this.stopHeartbeat();
-    this.clearPendingRequests();
-    
+    this.rejectAllPending('Connection closed');
     if (this.ws) {
+      this.ws.removeAllListeners();
       this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
-    
     this.setStatus('disconnected');
   }
 
-  /**
-   * 发送 API 请求
-   */
-  async sendAction<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T> {
+  /** 仅关闭当前连接，允许后续重连（内部 handleClose 使用）。 */
+  private closeConnection(): void {
+    this.stopHeartbeat();
+    this.rejectAllPending('Connection closed');
+    if (this.ws) {
+      this.ws.removeAllListeners();
+      this.ws.close();
+      this.ws = null;
+    }
+    this.setStatus('disconnected');
+  }
+
+  // ── API 请求 ─────────────────────────────────────────────────────────────────
+
+  async sendAction<T = unknown>(
+    action: string,
+    params: Record<string, unknown> = {},
+  ): Promise<T> {
     if (!this.ws || this.status !== 'connected') {
-      throw new Error('WebSocket 未连接');
+      throw new Error(`NapCatClient: not connected (status=${this.status})`);
     }
 
-    const echo = `${action}_${++this.echoCounter}`;
-    
-    return new Promise((resolve, reject) => {
-      const request: NapCatApiRequest = {
-        action,
-        params: params || {},
-        echo,
-      };
+    const echo = `${action}_${++this.echoSeq}`;
 
-      const timeout = setTimeout(() => {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
         this.pendingRequests.delete(echo);
-        reject(new Error(`API 请求超时：${action}`));
-      }, 30000);
+        reject(new Error(`NapCat API timeout: ${action}`));
+      }, this.cfg.apiTimeout);
 
-      this.pendingRequests.set(echo, { resolve, reject, timeout });
-
-      const message = JSON.stringify(request);
-      this.ws!.send(message);
-      console.log('[NapCatClient] 发送 API 请求:', action, params);
+      this.pendingRequests.set(echo, { resolve, reject, timer });
+      const req: NapCatApiRequest = { action, params, echo };
+      this.ws!.send(JSON.stringify(req));
     });
   }
 
-  /**
-   * 注册事件处理器
-   */
+  // ── 事件系统 ─────────────────────────────────────────────────────────────────
+
   on(event: string, handler: EventHandler): void {
-    if (!this.eventHandlers.has(event)) {
-      this.eventHandlers.set(event, new Set());
-    }
-    this.eventHandlers.get(event)!.add(handler);
+    if (!this.handlers.has(event)) this.handlers.set(event, new Set());
+    this.handlers.get(event)!.add(handler);
   }
 
-  /**
-   * 注销事件处理器
-   */
   off(event: string, handler: EventHandler): void {
-    const handlers = this.eventHandlers.get(event);
-    if (handlers) {
-      handlers.delete(handler);
-    }
+    this.handlers.get(event)?.delete(handler);
   }
 
-  /**
-   * 获取登录信息
-   */
-  async getLoginInfo(): Promise<{ user_id: number; nickname: string }> {
+  // ── 常用 API 封装 ─────────────────────────────────────────────────────────────
+
+  getLoginInfo(): Promise<{ user_id: number; nickname: string }> {
     return this.sendAction('get_login_info');
   }
 
-  /**
-   * 获取好友列表
-   */
-  async getFriendList(): Promise<Array<{ user_id: number; nickname: string; remark?: string }>> {
+  getFriendList(): Promise<Array<{ user_id: number; nickname: string; remark?: string }>> {
     return this.sendAction('get_friend_list');
   }
 
-  /**
-   * 获取群列表
-   */
-  async getGroupList(): Promise<Array<{ group_id: number; group_name: string; member_count?: number }>> {
+  getGroupList(): Promise<Array<{ group_id: number; group_name: string; member_count?: number }>> {
     return this.sendAction('get_group_list');
   }
 
-  /**
-   * 获取群成员信息
-   */
-  async getGroupMemberInfo(groupId: number, userId: number): Promise<any> {
+  getGroupMemberInfo(groupId: number, userId: number): Promise<any> {
     return this.sendAction('get_group_member_info', { group_id: groupId, user_id: userId });
   }
 
-  /**
-   * 获取群成员列表
-   */
-  async getGroupMemberList(groupId: number): Promise<any[]> {
+  getGroupMemberList(groupId: number): Promise<any[]> {
     return this.sendAction('get_group_member_list', { group_id: groupId });
   }
 
-  // ============================================================================
-  // 私有方法
-  // ============================================================================
+  // ── 私有方法 ─────────────────────────────────────────────────────────────────
 
-  private setStatus(status: ConnectionStatus): void {
-    this.status = status;
-    console.log('[NapCatClient] 状态变更:', status);
+  private setStatus(s: ConnectionStatus): void {
+    this.status = s;
   }
 
-  private handleMessage(data: Buffer): void {
-    try {
-      const payload = JSON.parse(data.toString());
-      
-      // 检查是否是 API 响应
-      if (payload.echo && this.pendingRequests.has(payload.echo)) {
-        this.handleApiResponse(payload);
-        return;
-      }
-
-      // 处理事件
-      if (payload.post_type) {
-        this.handleEvent(payload);
-      }
-    } catch (error) {
-      console.error('[NapCatClient] 解析消息失败:', error);
-    }
+  private handleClose(): void {
+    this.closeConnection();
+    this.emit(NapCatClient.EVENT_DISCONNECTED);
+    if (!this.destroyed) this.scheduleReconnect();
   }
 
-  private handleApiResponse(payload: NapCatApiResponse): void {
-    const { echo, status, retcode, data, message } = payload;
-    
-    if (!echo) {
-      return;
-    }
-    
-    const pending = this.pendingRequests.get(echo);
-    
-    if (!pending) {
-      return;
-    }
+  private async onRawMessage(data: Buffer): Promise<void> {
+    let payload: any;
+    try { payload = JSON.parse(data.toString()); }
+    catch { return; }
 
-    clearTimeout(pending.timeout);
-    this.pendingRequests.delete(echo);
-
-    if (status === 'ok' || retcode === 0) {
-      pending.resolve(data);
-    } else {
-      pending.reject(new Error(`API 请求失败：${message || `retcode=${retcode}`}`));
-    }
-  }
-
-  private handleEvent(payload: any): void {
-    const { post_type, message_type, event_type, notice_type, sub_type } = payload;
-    
-    // 调试：打印所有事件
-    console.log('[NapCatClient] 收到事件:', {
-      post_type,
-      message_type,
-      notice_type,
-      sub_type,
-      event_type,
-      user_id: payload.user_id,
-      target_id: payload.target_id,
-    });
-    
-    // 心跳事件
-    if (post_type === 'meta_event' && event_type === 'heartbeat') {
-      this.handleHeartbeat(payload);
+    // API 响应
+    if (payload.echo && this.pendingRequests.has(payload.echo)) {
+      const pending = this.pendingRequests.get(payload.echo)!;
+      clearTimeout(pending.timer);
+      this.pendingRequests.delete(payload.echo);
+      const ok = payload.status === 'ok' || payload.retcode === 0;
+      if (ok) pending.resolve(payload.data);
+      else    pending.reject(new Error(payload.message ?? `retcode=${payload.retcode}`));
       return;
     }
 
-    // 戳一戳等 notice 事件转换为消息事件（参考 qq 插件逻辑）
-    if (post_type === 'notice' && notice_type === 'notify' && sub_type === 'poke') {
-      console.log('[NapCatClient] 收到戳一戳 notice 事件:', payload);
-      
-      // 转换为消息，保留完整信息（来源和被戳对象）
-      payload.post_type = 'message';
-      payload.message_type = payload.group_id ? 'group' : 'private';
-      const userId = payload.user_id || payload.operator_id || 'unknown';
-      const targetId = payload.target_id || 'unknown';
-      const selfId = this.getSelfId();
-      const isPokeBot = selfId && String(targetId) === String(selfId);
-      
-      // 获取用户名称（从 payload 中或默认）
-      const userName = payload.sender?.nickname || payload.user_id?.toString() || '未知用户';
-      // 获取被戳者名称（从 payload 中或默认）
-      const targetName = payload.target_name || payload.target_id?.toString() || '未知用户';
-      
-      // 构建详细的戳一戳消息（包含用户昵称和 ID）
-      payload.raw_message = `[戳一戳] ${userName}(${userId}) 戳了 ${targetName}(${targetId})`;
-      payload.message = [{ 
-        type: 'text', 
-        data: { 
-          text: payload.raw_message,
-          poke_info: {
-            user_id: userId,
-            user_name: userName,
-            target_id: targetId,
-            target_name: targetName,
-            is_poke_bot: isPokeBot,
-            group_id: payload.group_id || null
-          }
-        } 
-      }];
-      
-      console.log('[NapCatClient] 戳一戳转换为消息:', payload);
-      this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
+    // 事件分发
+    if (!payload.post_type) return;
+
+    const { post_type, meta_event_type } = payload;
+
+    // 心跳
+    if (post_type === 'meta_event' && meta_event_type === 'heartbeat') {
+      this.resetHeartbeatTimeout();
       return;
     }
 
-    // 消息事件 - 添加详细调试日志
+    // 普通消息事件
     if (post_type === 'message') {
-      console.log('[NapCatClient] 收到原始消息事件:');
-      console.log('  - message_type:', payload.message_type);
-      console.log('  - message 类型:', Array.isArray(payload.message) ? 'Array' : typeof payload.message);
-      console.log('  - message 内容:', JSON.stringify(payload.message).substring(0, 300));
-      console.log('  - raw_message:', payload.raw_message?.substring(0, 300));
-      
       this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
       return;
     }
 
-    // 其他 notice 事件 - 转换为消息格式让 Agent 知道
+    // notice 事件：委托给 notice-handler 转换
     if (post_type === 'notice') {
-      console.log('[NapCatClient] 收到 notice 事件:', { notice_type, sub_type, ...payload });
-      
-      // 群文件上传
-      if (notice_type === 'group_upload' && payload.file) {
-        const userId = payload.user_id || 'unknown';
-        const fileName = payload.file.name || '未知文件';
-        const fileSize = payload.file.size ? `${(payload.file.size / 1024).toFixed(1)}KB` : '';
-        const fileId = payload.file.id || '';
-        const busid = payload.file.busid || '';
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[群文件上传] 用户${userId} 上传了文件：${fileName} (${fileSize})`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            upload_info: {
-              user_id: userId,
-              file_name: fileName,
-              file_size: payload.file.size,
-              file_id: fileId,
-              busid: busid
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 群文件上传转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
+      const converted = await handleNoticeEvent(payload, this);
+      if (converted) {
+        this.emit(NapCatClient.EVENT_MESSAGE, converted as NapCatMessageEvent);
       }
-      
-      // 群精华消息
-      if (notice_type === 'essence') {
-        const subType = payload.sub_type || 'add';
-        const senderId = payload.sender_id || 'unknown';
-        const operatorId = payload.operator_id || 'unknown';
-        const messageId = payload.message_id || '';
-        const action = subType === 'add' ? '设为精华' : '移除精华';
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[精华消息] 用户${operatorId} 将 用户${senderId} 的消息${action}`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            essence_info: {
-              action: subType,
-              sender_id: senderId,
-              operator_id: operatorId,
-              message_id: messageId
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 精华消息通知转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
-      }
-      
-      // 群成员增加
-      if (notice_type === 'group_increase') {
-        const userId = payload.user_id || 'unknown';
-        const operatorId = payload.operator_id || 'unknown';
-        const subType = payload.sub_type || 'approve';
-        const subTypeText = subType === 'approve' ? '同意加群' : subType === 'invite' ? '邀请加群' : subType;
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[群成员增加] 用户${userId} 加入群聊 (${subTypeText}) 操作者：${operatorId}`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            increase_info: {
-              user_id: userId,
-              operator_id: operatorId,
-              sub_type: subType
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 群成员增加转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
-      }
-      
-      // 群成员减少
-      if (notice_type === 'group_decrease') {
-        const userId = payload.user_id || 'unknown';
-        const operatorId = payload.operator_id || 'unknown';
-        const subType = payload.sub_type || 'leave';
-        const subTypeText = subType === 'leave' ? '主动退群' : subType === 'kick' ? '被踢' : subType === 'kick_me' ? '我被踢' : subType === 'disband' ? '群解散' : subType;
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[群成员减少] 用户${userId} 离开群聊 (${subTypeText}) 操作者：${operatorId}`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            decrease_info: {
-              user_id: userId,
-              operator_id: operatorId,
-              sub_type: subType
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 群成员减少转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
-      }
-      
-      // 群管理员变动
-      if (notice_type === 'group_admin') {
-        const userId = payload.user_id || 'unknown';
-        const subType = payload.sub_type || 'set';
-        const action = subType === 'set' ? '成为' : '卸任';
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[管理员变动] 用户${userId} ${action}管理员`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            admin_info: {
-              user_id: userId,
-              sub_type: subType
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 管理员变动转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
-      }
-      
-      // 群禁言
-      if (notice_type === 'group_ban') {
-        const userId = payload.user_id || 'unknown';
-        const operatorId = payload.operator_id || 'unknown';
-        const subType = payload.sub_type || 'ban';
-        const duration = payload.duration || 0;
-        const action = subType === 'ban' ? `禁言 ${duration}秒` : '解除禁言';
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[群禁言] 用户${operatorId} ${action} 用户${userId}`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            ban_info: {
-              user_id: userId,
-              operator_id: operatorId,
-              sub_type: subType,
-              duration: duration
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 群禁言转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
-      }
-      
-      // 群名片变更
-      if (notice_type === 'group_card') {
-        const userId = payload.user_id || 'unknown';
-        const cardNew = payload.card_new || '';
-        const cardOld = payload.card_old || '';
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[群名片变更] 用户${userId} 修改名片 "${cardOld}" → "${cardNew}"`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            card_info: {
-              user_id: userId,
-              card_new: cardNew,
-              card_old: cardOld
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 群名片变更转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
-      }
-      
-      // 表情回应
-      if (notice_type === 'group_msg_emoji_like' && payload.likes) {
-        const messageId = payload.message_id || '';
-        const userId = payload.user_id || 'unknown';
-        const likes = payload.likes.map((l: any) => `${l.emoji_id}:${l.count}`).join(', ');
-        
-        payload.post_type = 'message';
-        payload.message_type = 'group';
-        payload.raw_message = `[表情回应] 消息${messageId} 收到表情回应：${likes}`;
-        payload.message = [{ 
-          type: 'text', 
-          data: { 
-            text: payload.raw_message,
-            emoji_like_info: {
-              message_id: messageId,
-              user_id: userId,
-              likes: payload.likes
-            }
-          } 
-        }];
-        console.log('[NapCatClient] 表情回应转换为消息');
-        this.emit(NapCatClient.EVENT_MESSAGE, payload as NapCatMessageEvent);
-        return;
-      }
+      return;
     }
-    
-    // 其他事件
-    const eventType = `${post_type}.${message_type || notice_type || event_type || '*'}`;
-    console.log('[NapCatClient] 发射其他事件:', eventType);
-    this.emit(eventType, payload);
-    this.emit('*', payload);
-  }
 
-  private handleHeartbeat(_payload: any): void {
-    // 重置心跳超时计时器
-    if (this.heartbeatTimeoutTimer) {
-      clearTimeout(this.heartbeatTimeoutTimer);
-    }
-    this.heartbeatTimeoutTimer = setTimeout(() => {
-      console.warn('[NapCatClient] 心跳超时，强制重连');
-      this.forceReconnect();
-    }, this.config.heartbeatTimeout);
+    // 其他事件（request / meta_event 非心跳）
+    const { message_type, notice_type, event_type } = payload;
+    const eventKey = `${post_type}.${message_type ?? notice_type ?? event_type ?? '*'}`;
+    this.emit(eventKey, payload);
+    this.emit('*', payload);
   }
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    
-    // 定期发送心跳
     this.heartbeatTimer = setInterval(() => {
-      if (this.status === 'connected' && this.ws) {
-        // OneBot v11 心跳通过 get_status API 实现
-        this.sendAction('get_status').catch(err => {
-          console.warn('[NapCatClient] 心跳检查失败:', err);
-        });
+      if (this.status === 'connected') {
+        this.sendAction('get_status').catch(() => { /* ignore */ });
       }
-    }, this.config.heartbeatInterval);
+    }, this.cfg.heartbeatInterval);
+    this.resetHeartbeatTimeout();
   }
 
   private stopHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = undefined;
-    }
-    if (this.heartbeatTimeoutTimer) {
-      clearTimeout(this.heartbeatTimeoutTimer);
-      this.heartbeatTimeoutTimer = undefined;
-    }
+    if (this.heartbeatTimer)        { clearInterval(this.heartbeatTimer);        this.heartbeatTimer        = undefined; }
+    if (this.heartbeatTimeoutTimer) { clearTimeout(this.heartbeatTimeoutTimer);  this.heartbeatTimeoutTimer = undefined; }
+  }
+
+  private resetHeartbeatTimeout(): void {
+    if (this.heartbeatTimeoutTimer) clearTimeout(this.heartbeatTimeoutTimer);
+    this.heartbeatTimeoutTimer = setTimeout(() => {
+      console.warn('[NapCatClient] 心跳超时，强制重连');
+      this.handleClose();
+    }, this.cfg.heartbeatTimeout);
   }
 
   private scheduleReconnect(): void {
-    if (this.status === 'disconnected' && this.reconnectAttempts < 10) {
-      const delay = Math.min(
-        this.config.reconnectDelay! * Math.pow(2, this.reconnectAttempts),
-        this.config.maxReconnectDelay!
-      );
-      
-      console.log(`[NapCatClient] 计划 ${Math.round(delay / 1000)} 秒后重连 (尝试 ${this.reconnectAttempts + 1}/10)`);
-      
-      setTimeout(() => {
-        if (this.status === 'disconnected') {
-          this.reconnectAttempts++;
-          this.setStatus('reconnecting');
-          this.connect().catch(err => {
-            console.error('[NapCatClient] 重连失败:', err);
-            this.setStatus('disconnected');
-          });
-        }
-      }, delay);
-    } else if (this.reconnectAttempts >= 10) {
-      console.error('[NapCatClient] 重连次数过多，放弃重连');
+    const MAX_ATTEMPTS = 10;
+    if (this.reconnectAttempts >= MAX_ATTEMPTS) {
+      console.error('[NapCatClient] 达到最大重连次数，放弃重连');
+      return;
     }
+    const delay = Math.min(
+      this.cfg.reconnectDelay * 2 ** this.reconnectAttempts,
+      this.cfg.maxReconnectDelay,
+    );
+    this.reconnectAttempts++;
+    console.log(`[NapCatClient] ${Math.round(delay / 1000)}s 后重连 (第 ${this.reconnectAttempts}/${MAX_ATTEMPTS} 次)`);
+    setTimeout(() => {
+      if (!this.destroyed && this.status === 'disconnected') {
+        this.setStatus('reconnecting');
+        this.connect().catch(err => {
+          console.error('[NapCatClient] 重连失败:', err);
+          this.setStatus('disconnected');
+        });
+      }
+    }, delay);
   }
 
-  private forceReconnect(): void {
-    this.disconnect();
-    this.reconnectAttempts = 0;
-    this.scheduleReconnect();
-  }
-
-  private clearPendingRequests(): void {
-    for (const [_echo, pending] of this.pendingRequests.entries()) {
-      clearTimeout(pending.timeout);
-      pending.reject(new Error('Connection closed'));
+  private rejectAllPending(reason: string): void {
+    for (const [, pending] of this.pendingRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(reason));
     }
     this.pendingRequests.clear();
   }
 
   private emit(event: string, data?: unknown): void {
-    const handlers = this.eventHandlers.get(event);
-    if (handlers) {
-      for (const handler of handlers) {
-        try {
-          const result = handler(data);
-          if (result instanceof Promise) {
-            result.catch(err => {
-              console.error(`[NapCatClient] 事件处理器错误 (${event}):`, err);
-            });
-          }
-        } catch (error) {
-          console.error(`[NapCatClient] 事件处理器错误 (${event}):`, error);
-        }
+    const handlers = this.handlers.get(event);
+    if (!handlers) return;
+    for (const h of handlers) {
+      try {
+        const r = h(data);
+        if (r instanceof Promise) r.catch(err => console.error(`[NapCatClient] 事件处理器错误 (${event}):`, err));
+      } catch (err) {
+        console.error(`[NapCatClient] 事件处理器错误 (${event}):`, err);
       }
     }
   }
