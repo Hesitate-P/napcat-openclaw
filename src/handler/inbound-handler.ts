@@ -18,7 +18,6 @@ import {
   setGroupTypingCard,
   clearGroupTypingCard,
 } from '../streaming/typing-indicator.js';
-import { getUserNickname as _getUserNickname } from '../utils/userinfo.js';
 import type { DatabaseManager } from '../database/index.js';
 
 // ============================================================================
@@ -285,9 +284,9 @@ export async function handleIncomingMessage(
           }
           if (msgs.length === 0) return;
           if (isGroup && groupId !== undefined) {
-            await client.sendAction('send_group_msg', { group_id: groupId, message: msgs });
+            await client.sendAction('send_group_msg', { group_id: String(groupId), message: msgs });
           } else {
-            await client.sendAction('send_private_msg', { user_id: userId, message: msgs });
+            await client.sendAction('send_private_msg', { user_id: String(userId), message: msgs });
           }
         };
 
@@ -314,7 +313,7 @@ export async function handleIncomingMessage(
           '[管理员变动]', '[群禁言]', '[精华消息]', '[表情回应]',
         ].some((tag) => fullContent.includes(tag));
 
-        await db.saveMessage({
+        db.saveMessage({
           message_id:  isNotice ? `notice_${Date.now()}` : String(event.message_id),
           account_id:  accountId,
           chat_type:   isGroup ? 'group' : 'direct',

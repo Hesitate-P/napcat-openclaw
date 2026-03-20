@@ -116,7 +116,7 @@ export async function setGroupTypingCard(
   try {
     const info = await client.sendAction<{ card?: string; nickname?: string }>(
       'get_group_member_info',
-      { group_id: groupId, user_id: selfId, no_cache: true },
+      { group_id: String(groupId), user_id: String(selfId), no_cache: true },
     );
     const currentCard = (info?.card || info?.nickname || '').trim();
     const baseCard    = stripSuffix(currentCard, busySuffix);
@@ -125,8 +125,8 @@ export async function setGroupTypingCard(
     // busySuffix 本身可能已含括号（如「（输入中）」），直接追加，不再套括号
     const nextCard = baseCard ? `${baseCard}${busySuffix}` : busySuffix;
     await client.sendAction('set_group_card', {
-      group_id: groupId,
-      user_id:  selfId,
+      group_id: String(groupId),
+      user_id:  String(selfId),
       card:     nextCard,
     });
     console.log(`[TypingIndicator] 群 ${groupId} 名片 → ${nextCard}`);
@@ -159,8 +159,8 @@ export function clearGroupTypingCard(
   groupBaseCard.delete(key);
 
   client.sendAction('set_group_card', {
-    group_id: groupId,
-    user_id:  selfId,
+    group_id: String(groupId),
+    user_id:  String(selfId),
     card:     baseCard,
   }).catch(err => console.warn('[TypingIndicator] 群名片恢复失败:', err));
 
@@ -179,8 +179,8 @@ export async function cleanupGroupCards(client: NapCatClient): Promise<void> {
       if (!groupId) continue;
       try {
         await client.sendAction('set_group_card', {
-          group_id: groupId,
-          user_id:  selfId,
+          group_id: String(groupId),
+          user_id:  String(selfId),
           card:     baseCard,
         });
       } catch { /* ignore */ }

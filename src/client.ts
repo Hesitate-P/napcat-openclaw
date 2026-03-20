@@ -82,26 +82,31 @@ export class NapCatClient {
         headers: { Authorization: `Bearer ${this.cfg.accessToken}` },
       });
 
+      let settled = false;
+      const settle = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
+
       ws.once('open', () => {
         this.ws = ws;
         this.reconnectAttempts = 0;
         this.setStatus('connected');
         this.startHeartbeat();
         this.emit(NapCatClient.EVENT_CONNECTED);
-        resolve();
+        settle(resolve);
       });
 
       ws.on('message', (data: Buffer) => this.onRawMessage(data));
 
       ws.once('error', (err: Error) => {
-        if (this.status === 'connecting') reject(err);
         this.emit(NapCatClient.EVENT_ERROR, err);
-        // close 事件会紧随 error 之后触发，handleClose 由 close 统一处理
+        // 仅在 connecting 阶段才 reject Promise；close 事件会紧随触发，由 handleClose 统一处理重连
+        settle(() => reject(err));
       });
 
-      ws.once('close', () => this.handleClose());
-
-      this.ws = ws;
+      ws.once('close', () => {
+        // 如果 Promise 还未 settle（如直接 close 未触发 error），也 reject
+        settle(() => reject(new Error('Connection closed before open')));
+        this.handleClose();
+      });
     });
   }
 

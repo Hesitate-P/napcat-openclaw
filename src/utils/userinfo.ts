@@ -115,10 +115,3 @@ export async function getUserNickname(
   // 4. 最终 fallback：返回 QQ 号字符串
   return String(userId);
 }
-
-/**
- * 缓存统计（调试用）
- */
-export function getCacheStats(): { size: number } {
-  return { size: userCache.size };
-}
