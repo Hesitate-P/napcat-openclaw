@@ -1,5 +1,5 @@
 {
-  "name": "@openclaw/napcat",
+  "name": "@openclaw/napcat-channel",
   "version": "0.1.0",
   "type": "module",
   "description": "基于 NapCatQQ 的完整功能 QQ 频道插件",

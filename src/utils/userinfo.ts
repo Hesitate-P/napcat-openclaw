@@ -117,32 +117,6 @@ export async function getUserNickname(
 }
 
 /**
- * 批量获取用户昵称
- */
-export async function getUserNicknames(
-  client:  NapCatClient,
-  userIds: number[],
-  groupId?: number,
-): Promise<Record<number, string>> {
-  const results: Record<number, string> = {};
-  const toFetch: number[] = [];
-
-  for (const userId of userIds) {
-    const cached = getCachedNickname(userId);
-    if (cached) results[userId] = cached;
-    else toFetch.push(userId);
-  }
-
-  await Promise.all(
-    toFetch.map(async (userId) => {
-      results[userId] = await getUserNickname(client, userId, groupId);
-    }),
-  );
-
-  return results;
-}
-
-/**
  * 缓存统计（调试用）
  */
 export function getCacheStats(): { size: number } {

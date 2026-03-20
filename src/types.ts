@@ -161,60 +161,6 @@ export interface MessageRecord {
   created_at?: number;
 }
 
-/**
- * 消息元素记录
- */
-export interface MessageElementRecord {
-  id?: number;
-  message_id: string;
-  element_type: string;
-  element_data: string;
-  sort_order: number;
-}
-
-/**
- * 用户记录
- */
-export interface UserRecord {
-  id?: number;
-  user_id: number;
-  nickname?: string;
-  remark?: string;
-  gender?: string;
-  age?: number;
-  level?: number;
-  expression_style?: string;
-  last_active?: number;
-  created_at?: number;
-}
-
-/**
- * 群聊记录
- */
-export interface GroupRecord {
-  id?: number;
-  group_id: number;
-  group_name?: string;
-  member_count?: number;
-  max_member?: number;
-  created_at?: number;
-}
-
-/**
- * 群成员记录
- */
-export interface GroupMemberRecord {
-  id?: number;
-  group_id: number;
-  user_id: number;
-  card?: string;
-  role?: 'owner' | 'admin' | 'member';
-  title?: string;
-  join_time?: number;
-  last_speak?: number;
-  speak_count?: number;
-}
-
 // ============================================================================
 // 内部状态和工具类型
 // ============================================================================
