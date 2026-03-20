@@ -255,10 +255,19 @@ export function validateConfig(config: Partial<NapCatConfig>): { valid: boolean;
 }
 
 /**
- * 合并配置
+ * 深度合并配置（防止嵌套对象被浅覆盖）
  */
 export function mergeConfig(userConfig: Partial<NapCatConfig>): NapCatConfig {
-  return { ...DEFAULT_CONFIG, ...userConfig } as NapCatConfig;
+  const result = { ...DEFAULT_CONFIG } as any;
+  for (const key of Object.keys(userConfig) as (keyof NapCatConfig)[]) {
+    const val = (userConfig as any)[key];
+    if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+      result[key] = { ...(DEFAULT_CONFIG as any)[key], ...val };
+    } else if (val !== undefined) {
+      result[key] = val;
+    }
+  }
+  return result as NapCatConfig;
 }
 
 /**

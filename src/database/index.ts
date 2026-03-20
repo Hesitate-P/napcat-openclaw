@@ -245,14 +245,15 @@ export class DatabaseManager {
       WHERE chat_type = ? AND chat_id = ?
     `;
     
-    const params: any[] = [chatType, chatId, limit];
+    const params: (string | number)[] = [chatType, chatId];
     
     if (beforeTimestamp) {
       sql += ` AND timestamp < ?`;
-      params.splice(2, 0, beforeTimestamp);
+      params.push(beforeTimestamp);
     }
     
     sql += ` ORDER BY timestamp DESC LIMIT ?`;
+    params.push(limit);
 
     const stmt = this.db.prepare(sql);
     return stmt.all(...params) as MessageRecord[];

@@ -178,9 +178,9 @@ export async function handleIncomingMessage(
       if (hist.length > 0) inboundHistory = hist;
     }
 
-    // ── 机器人群角色查询（带缓存，5分钟TTL）────────────────────────────────
+    // ── 机器人群角色查询（带缓存，5分钟TTL，仅 trigger 时查询）──────────────
     let botRole: 'owner' | 'admin' | 'member' | 'unknown' = 'unknown';
-    if (isGroup && groupId !== undefined) {
+    if (trigger && isGroup && groupId !== undefined) {
       botRole = await getBotRole(client, accountId, groupId, selfId);
     }
 

@@ -234,10 +234,16 @@ function convertGroupBan(payload: NoticePayload): NoticePayload {
   const userId     = payload.user_id     ?? 'unknown';
   const operatorId = payload.operator_id ?? 'unknown';
   const duration   = payload.duration    ?? 0;
-  const action     = payload.sub_type === 'ban' ? `禁言 ${duration}秒` : '解除禁言';
+  const isBan      = payload.sub_type === 'ban';
+  // user_id=0 表示全员禁言/解禁
+  const isWholeBan = Number(userId) === 0;
+  const action     = isBan
+    ? (isWholeBan ? '开启全员禁言' : `禁言 ${duration}秒`)
+    : (isWholeBan ? '解除全员禁言' : '解除禁言');
   const userName     = payload.nick || payload.user_name   || String(userId);
   const operatorName = payload.operator_nick || String(operatorId);
-  return makeGroupMessage(payload, `[群禁言] ${operatorName}(${operatorId}) ${action} ${userName}(${userId})`);
+  const target       = isWholeBan ? '全体成员' : `${userName}(${userId})`;
+  return makeGroupMessage(payload, `[群禁言] ${operatorName}(${operatorId}) ${action} ${target}`);
 }
 
 // ── 群名片变更 ───────────────────────────────────────────────────────────────
