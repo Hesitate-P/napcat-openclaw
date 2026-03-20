@@ -5,41 +5,92 @@
  * channel.ts、napcat-tools skill 统一使用本模块，不得再重复实现。
  */
 
+import * as fs   from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 // ============================================================================
-// QQ 表情 ID 映射（在线获取 + 内存缓存）
+// QQ 表情 ID 映射（在线获取 + 本地文件持久化）
 // 数据来源：QFace https://koishi.js.org/QFace/assets/qq_emoji/_index.json
+// 策略：每次启动都尝试拉取最新数据并写入本地缓存文件；离线时使用本地缓存。
 // ============================================================================
 
 /** 内存缓存：ID → 描述 */
 let faceMapCache: Record<string, string> | null = null;
 let faceMapLoading: Promise<void> | null = null;
 
-const QFACE_URL = 'https://koishi.js.org/QFace/assets/qq_emoji/_index.json';
+const QFACE_URL   = 'https://koishi.js.org/QFace/assets/qq_emoji/_index.json';
+const CACHE_FILE  = path.join(
+  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
+  'face-map-cache.json',
+);
+
+/** 从在线数据构建 ID→名称 映射 */
+function buildMap(data: unknown): Record<string, string> {
+  const arr = data as Array<{ emojiId: string; describe: string }>;
+  const map: Record<string, string> = {};
+  for (const item of arr) {
+    if (item.emojiId?.match(/^\d+$/) && item.describe) {
+      map[item.emojiId] = item.describe.replace(/^\//, '').trim();
+    }
+  }
+  return map;
+}
+
+/** 尝试从本地缓存文件读取 */
+function loadLocalCache(): Record<string, string> | null {
+  try {
+    const raw = fs.readFileSync(CACHE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, string>;
+    }
+  } catch { /* 文件不存在或解析失败 */ }
+  return null;
+}
+
+/** 将映射写入本地缓存文件（静默失败） */
+function saveLocalCache(map: Record<string, string>): void {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(map), 'utf-8');
+  } catch (err) {
+    console.warn('[FaceMap] 写入本地缓存失败:', (err as Error).message);
+  }
+}
 
 /**
- * 异步加载表情映射表（仅加载一次，后续复用缓存）。
- * 模块加载时自动触发，无需手动调用。
+ * 加载表情映射表。
+ * - 每次启动都尝试从网络拉取最新数据并更新本地缓存。
+ * - 网络失败时自动 fallback 到上次缓存的本地文件。
+ * - 模块加载时自动触发，无需手动调用。
  */
 export function initFaceMap(): Promise<void> {
-  if (faceMapCache) return Promise.resolve();
   if (faceMapLoading) return faceMapLoading;
+
+  // 先立即加载本地缓存（让表情名在网络请求完成前就可用）
+  if (!faceMapCache) {
+    const local = loadLocalCache();
+    if (local) {
+      faceMapCache = local;
+      console.log(`[FaceMap] 已从本地缓存加载 ${Object.keys(local).length} 个表情，后台更新中...`);
+    }
+  }
 
   faceMapLoading = fetch(QFACE_URL)
     .then(r => r.json())
     .then((data: unknown) => {
-      const arr = data as Array<{ emojiId: string; describe: string }>;
-      const map: Record<string, string> = {};
-      for (const item of arr) {
-        if (item.emojiId && item.emojiId.match(/^\d+$/) && item.describe) {
-          map[item.emojiId] = item.describe.replace(/^\//, '').trim();
-        }
-      }
+      const map = buildMap(data);
       faceMapCache = map;
-      console.log(`[FaceMap] 已加载 ${Object.keys(map).length} 个表情`);
+      saveLocalCache(map);
+      console.log(`[FaceMap] 已从网络更新 ${Object.keys(map).length} 个表情`);
     })
     .catch(err => {
-      console.warn('[FaceMap] 在线加载失败，将显示表情ID：', err.message ?? err);
-      faceMapCache = {}; // 标记为已尝试，避免反复重试
+      if (faceMapCache) {
+        console.warn('[FaceMap] 网络更新失败，继续使用本地缓存：', (err as Error).message ?? err);
+      } else {
+        console.warn('[FaceMap] 在线加载失败且无本地缓存，将显示表情ID：', (err as Error).message ?? err);
+        faceMapCache = {};
+      }
     });
 
   return faceMapLoading;
@@ -47,6 +98,7 @@ export function initFaceMap(): Promise<void> {
 
 // 模块加载时立即触发（不阻塞）
 initFaceMap();
+
 
 function getFaceName(id: string): string {
   return (faceMapCache ?? {})[id] ?? `表情${id}`;
