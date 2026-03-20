@@ -96,8 +96,7 @@ export class NapCatClient {
       ws.once('error', (err: Error) => {
         if (this.status === 'connecting') reject(err);
         this.emit(NapCatClient.EVENT_ERROR, err);
-        // handleClose 内部会判断 destroyed，安全调用
-        this.handleClose();
+        // close 事件会紧随 error 之后触发，handleClose 由 close 统一处理
       });
 
       ws.once('close', () => this.handleClose());
@@ -181,11 +180,11 @@ export class NapCatClient {
   }
 
   getGroupMemberInfo(groupId: number, userId: number): Promise<any> {
-    return this.sendAction('get_group_member_info', { group_id: groupId, user_id: userId });
+    return this.sendAction('get_group_member_info', { group_id: String(groupId), user_id: String(userId) });
   }
 
   getGroupMemberList(groupId: number): Promise<any[]> {
-    return this.sendAction('get_group_member_list', { group_id: groupId });
+    return this.sendAction('get_group_member_list', { group_id: String(groupId) });
   }
 
   // ── 私有方法 ─────────────────────────────────────────────────────────────────

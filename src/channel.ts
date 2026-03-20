@@ -9,6 +9,7 @@ import type { ChannelPlugin, ChannelAccountSnapshot } from 'openclaw/plugin-sdk'
 import { DEFAULT_ACCOUNT_ID, buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import * as path from 'node:path';
 import * as fs   from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { NapCatClient } from './client.js';
 import { NapCatConfigSchema, type NapCatConfig, toNestedConfig } from './config.js';
@@ -147,7 +148,7 @@ export const napcatChannel: ChannelPlugin<ResolvedNapcatAccount> = {
 
       // 初始化数据库
       if (nested.database.path) {
-        const pluginDir = path.dirname(path.dirname(new URL(import.meta.url).pathname)); // src/../ = 插件根目录
+        const pluginDir = path.dirname(path.dirname(fileURLToPath(import.meta.url))); // src/../ = 插件根目录
         const dbPath = path.isAbsolute(nested.database.path)
           ? nested.database.path
           : path.join(pluginDir, nested.database.path);
@@ -251,7 +252,7 @@ export const napcatChannel: ChannelPlugin<ResolvedNapcatAccount> = {
 
       const action = type === 'group' ? 'send_group_msg' : 'send_private_msg';
       const result: any = await client.sendAction(action, {
-        [type === 'group' ? 'group_id' : 'user_id']: id,
+        [type === 'group' ? 'group_id' : 'user_id']: String(id),
         message: [{ type: 'text', data: { text } }],
       });
 
