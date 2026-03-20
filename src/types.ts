@@ -216,34 +216,6 @@ export interface GroupMemberRecord {
 }
 
 // ============================================================================
-// 插件配置类型
-// ============================================================================
-
-/**
- * 插件配置
- */
-export interface NapCatChannelConfig {
-  wsUrl: string;
-  accessToken: string;
-  blockStreaming?: boolean;
-  textChunkLimit?: number;
-  chunkMode?: 'length' | 'newline' | 'paragraph';
-  typingIndicator?: {
-    enabled?: boolean;
-    privateChat?: 'api' | 'none';
-    groupChat?: 'nickname' | 'none';
-    nicknameSuffix?: string;
-    delayMs?: number;
-  };
-  database?: {
-    type: 'sqlite';
-    path: string;
-  };
-  sharedMediaHostDir?: string;
-  sharedMediaContainerDir?: string;
-}
-
-// ============================================================================
 // 内部状态和工具类型
 // ============================================================================
 
@@ -253,27 +225,7 @@ export interface NapCatChannelConfig {
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
 /**
- * 消息队列项
- */
-export interface QueuedMessage {
-  to: string;
-  content: string;
-  elements?: Array<{ type: string; data: Record<string, unknown> }>;
-  priority: number;
-  timestamp: number;
-}
-
-/**
- * 输入状态跟踪
- */
-export interface TypingState {
-  isTyping: boolean;
-  timer?: NodeJS.Timeout;
-  originalCard?: string; // 群聊原始名片
-}
-
-/**
- * Block Streaming 配置
+ * Block Streaming 配置（保留供未来 Phase 2 使用）
  */
 export interface BlockStreamingConfig {
   enabled: boolean;
