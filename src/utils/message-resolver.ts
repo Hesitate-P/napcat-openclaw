@@ -283,16 +283,113 @@ export async function resolveMessageText(
         break;
       }
 
-      // ── 转发 ──────────────────────────────────────────────────
-      case 'forward':
-        parts.push('[转发消息]');
+      // ── 转发消息 ────────────────────────────────────────────────
+      // NapCat 转发消息：d.id = 合并转发ID，d.content = 节点数组（若已展开）
+      case 'forward': {
+        // 若已有内联节点数组，直接展开前几条
+        if (Array.isArray(d.content) && d.content.length > 0) {
+          const previews: string[] = [];
+          for (const node of d.content.slice(0, 3)) {
+            const nodeData = node.data ?? node;
+            const sender = nodeData.name || nodeData.nickname || nodeData.sender?.nickname || '未知';
+            let nodeContent = '';
+            if (Array.isArray(nodeData.content)) {
+              nodeContent = (await resolveMessageText(nodeData.content, client, groupId)).slice(0, 60);
+            } else if (typeof nodeData.message === 'string') {
+              nodeContent = nodeData.message.slice(0, 60);
+            } else if (Array.isArray(nodeData.message)) {
+              nodeContent = (await resolveMessageText(nodeData.message, client, groupId)).slice(0, 60);
+            }
+            previews.push(`${sender}: ${nodeContent || '...'}`);
+          }
+          const more = d.content.length > 3 ? `（共${d.content.length}条）` : '';
+          parts.push(`[转发消息${more}\n${previews.join('\n')}]`);
+        } else if (d.id) {
+          // 有 ID 但无内容，尝试通过 API 获取
+          if (client) {
+            try {
+              const fwd = await client.sendAction('get_forward_msg', { message_id: d.id }) as any;
+              const messages = fwd?.messages ?? fwd?.data?.messages ?? [];
+              if (Array.isArray(messages) && messages.length > 0) {
+                const previews: string[] = [];
+                for (const msg of messages.slice(0, 3)) {
+                  const sender = msg.sender?.nickname || msg.sender?.card || '未知';
+                  const msgElems = Array.isArray(msg.message) ? msg.message
+                    : Array.isArray(msg.content) ? msg.content : [];
+                  const text = msgElems.length > 0
+                    ? (await resolveMessageText(msgElems, client, groupId)).slice(0, 60)
+                    : String(msg.raw_message || '').slice(0, 60);
+                  previews.push(`${sender}: ${text || '...'}`);
+                }
+                const more = messages.length > 3 ? `（共${messages.length}条）` : '';
+                parts.push(`[转发消息${more}\n${previews.join('\n')}]`);
+              } else {
+                parts.push(`[转发消息 ID:${d.id}]`);
+              }
+            } catch {
+              parts.push(`[转发消息 ID:${d.id}]`);
+            }
+          } else {
+            parts.push(`[转发消息 ID:${d.id}]`);
+          }
+        } else {
+          parts.push('[转发消息]');
+        }
         break;
+      }
 
-      // ── 卡片消息 ───────────────────────────────────────────────
-      case 'xml':
-      case 'json':
-        parts.push('[卡片消息]');
+      // ── 卡片消息（json/xml）────────────────────────────────────
+      // json 卡片：data.data 是 JSON 字符串，含 app/prompt/meta 等字段
+      // xml 卡片：data.data 是 XML 字符串
+      case 'json': {
+        let title = '';
+        let desc  = '';
+        let url   = '';
+        const raw = d.data || d.content || '';
+        if (raw) {
+          try {
+            const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            // 常见结构：lightapp / ark
+            title = obj?.meta?.detail_1?.title
+                  || obj?.meta?.news?.title
+                  || obj?.meta?.music?.title
+                  || obj?.meta?.video?.title
+                  || obj?.prompt
+                  || obj?.app
+                  || '';
+            desc  = obj?.meta?.detail_1?.desc
+                  || obj?.meta?.news?.desc
+                  || obj?.meta?.music?.desc
+                  || obj?.desc
+                  || '';
+            url   = obj?.meta?.detail_1?.qqdocurl
+                  || obj?.meta?.detail_1?.jumpUrl
+                  || obj?.meta?.news?.jumpUrl
+                  || obj?.meta?.music?.jumpUrl
+                  || obj?.meta?.video?.jumpUrl
+                  || '';
+          } catch { /* ignore */ }
+        }
+        if (title && url)       parts.push(`[卡片：${title}${desc ? ' - ' + desc : ''} ${url}]`);
+        else if (title)        parts.push(`[卡片：${title}${desc ? ' - ' + desc : ''}]`);
+        else if (d.prompt)     parts.push(`[卡片：${d.prompt}]`);
+        else                   parts.push('[JSON 卡片]');
         break;
+      }
+      case 'xml': {
+        const raw = d.data || d.content || '';
+        // 从 XML 中提取 summary/title 属性
+        let title = '';
+        if (raw) {
+          const mTitle   = String(raw).match(/title="([^"]*)"/i);
+          const mSummary = String(raw).match(/summary="([^"]*)"/i);
+          const mDesc    = String(raw).match(/desc="([^"]*)"/i);
+          const mName    = String(raw).match(/<name>([^<]*)<\/name>/i);
+          title = mTitle?.[1] || mSummary?.[1] || mDesc?.[1] || mName?.[1] || '';
+        }
+        parts.push(title ? `[XML 卡片：${title}]` : '[XML 卡片]');
+        break;
+      }
 
       // ── 骰子 ──────────────────────────────────────────────────
       case 'dice': {
@@ -464,8 +561,47 @@ export function resolveMessageTextSync(elements: any[]): string {
       case 'video':  { const vUrl = d.url || (typeof d.file==='string' && d.file.startsWith('http')?d.file:''); parts.push(vUrl ? `[视频：URL:${vUrl}]` : '[视频]'); break; }
       case 'mface':  parts.push(`[商城表情：${d.summary ?? `ID:${d.emoji_id}`}]`); break;
       case 'reply':  parts.push(`[回复消息 ID:${d.id ?? d.message_id ?? ''}]`); break;
-      case 'forward': parts.push('[转发消息]'); break;
-      case 'xml': case 'json': parts.push('[卡片消息]'); break;
+      case 'forward': {
+        // 同步版本无法调用 API，展示 ID 或节点数量
+        if (Array.isArray(d.content) && d.content.length > 0) {
+          const previews = d.content.slice(0, 3).map((node: any) => {
+            const nd = node.data ?? node;
+            const sender = nd.name || nd.nickname || nd.sender?.nickname || '未知';
+            const text = typeof nd.message === 'string' ? nd.message.slice(0, 40)
+              : Array.isArray(nd.content) ? resolveMessageTextSync(nd.content).slice(0, 40)
+              : Array.isArray(nd.message) ? resolveMessageTextSync(nd.message).slice(0, 40) : '...';
+            return `${sender}: ${text}`;
+          });
+          const more = d.content.length > 3 ? `（共${d.content.length}条）` : '';
+          parts.push(`[转发消息${more}\n${previews.join('\n')}]`);
+        } else if (d.id) {
+          parts.push(`[转发消息 ID:${d.id}]`);
+        } else {
+          parts.push('[转发消息]');
+        }
+        break;
+      }
+      case 'json': {
+        let title = '';
+        const raw = d.data || d.content || '';
+        if (raw) {
+          try {
+            const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            title = obj?.meta?.detail_1?.title || obj?.meta?.news?.title
+                  || obj?.meta?.music?.title   || obj?.meta?.video?.title
+                  || obj?.prompt || obj?.app || '';
+          } catch { /* */ }
+        }
+        parts.push(title ? `[卡片：${title}]` : d.prompt ? `[卡片：${d.prompt}]` : '[JSON 卡片]');
+        break;
+      }
+      case 'xml': {
+        const raw = String(d.data || d.content || '');
+        const m = raw.match(/title="([^"]*)"/i) || raw.match(/summary="([^"]*)"/i)
+               || raw.match(/<name>([^<]*)<\/name>/i);
+        parts.push(m?.[1] ? `[XML 卡片：${m[1]}]` : '[XML 卡片]');
+        break;
+      }
       case 'dice': parts.push(`[骰子：${d.result ?? d.value ?? '?'}点]`); break;
       case 'rps':  parts.push(`[猜拳：${d.result ?? d.value ?? '?'}]`); break;
       case 'poke': case 'shake': parts.push('[戳一戳]'); break;
