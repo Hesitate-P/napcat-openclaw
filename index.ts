@@ -10,7 +10,7 @@ import { napcatChannel } from "./src/channel.js";
 import { setNapcatRuntime } from "./src/runtime.js";
 
 const plugin = {
-  id: "napcat",
+  id: "napcat-channel",
   name: "NapCat QQ Channel",
   description: "基于 NapCatQQ 的完整功能 QQ 频道插件，支持完整消息类型、历史存储和 Block Streaming",
   configSchema: emptyPluginConfigSchema(),

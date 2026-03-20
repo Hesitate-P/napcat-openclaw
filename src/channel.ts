@@ -49,9 +49,9 @@ function parseTarget(to: string): { type: 'private' | 'group'; id: number } {
 // ── Plugin 定义 ─────────────────────────────────────────────────────────────────
 
 export const napcatChannel: ChannelPlugin<ResolvedNapcatAccount> = {
-  id: 'napcat',
+  id: 'napcat-channel',
   meta: {
-    id:             'napcat',
+    id:             'napcat-channel',
     label:          'NapCat QQ',
     selectionLabel: 'QQ (NapCat)',
     docsPath:       'projects/openclaw-napcat-channel',
