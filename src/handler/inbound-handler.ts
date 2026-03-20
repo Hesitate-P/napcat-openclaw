@@ -22,6 +22,40 @@ import { getUserNickname as _getUserNickname } from '../utils/userinfo.js';
 import type { DatabaseManager } from '../database/index.js';
 
 // ============================================================================
+// 机器人群角色缓存（避免每条消息都查询 API）
+// ============================================================================
+
+/** key: `${accountId}:${groupId}`, value: { role, expiresAt } */
+const botRoleCache = new Map<string, { role: 'owner' | 'admin' | 'member' | 'unknown'; expiresAt: number }>();
+const BOT_ROLE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 分钟
+
+async function getBotRole(
+  client:    NapCatClient,
+  accountId: string,
+  groupId:   number,
+  selfId:    number | null,
+): Promise<'owner' | 'admin' | 'member' | 'unknown'> {
+  if (!selfId) return 'unknown';
+  const key    = `${accountId}:${groupId}`;
+  const cached = botRoleCache.get(key);
+  if (cached && Date.now() < cached.expiresAt) return cached.role;
+  try {
+    const info: any = await client.sendAction('get_group_member_info', {
+      group_id: groupId,
+      user_id:  selfId,
+      no_cache: false,
+    });
+    const role = info?.role;
+    const resolved: 'owner' | 'admin' | 'member' | 'unknown' =
+      (role === 'owner' || role === 'admin' || role === 'member') ? role : 'unknown';
+    botRoleCache.set(key, { role: resolved, expiresAt: Date.now() + BOT_ROLE_CACHE_TTL_MS });
+    return resolved;
+  } catch {
+    return 'unknown';
+  }
+}
+
+// ============================================================================
 // 系统消息构建
 // ============================================================================
 
@@ -144,18 +178,10 @@ export async function handleIncomingMessage(
       if (hist.length > 0) inboundHistory = hist;
     }
 
-    // ── 机器人群角色查询 ─────────────────────────────────────────────────────
+    // ── 机器人群角色查询（带缓存，5分钟TTL）────────────────────────────────
     let botRole: 'owner' | 'admin' | 'member' | 'unknown' = 'unknown';
-    if (isGroup && groupId !== undefined && selfId) {
-      try {
-        const memberInfo: any = await client.sendAction('get_group_member_info', {
-          group_id: groupId,
-          user_id:  selfId,
-          no_cache: false,
-        });
-        const role = memberInfo?.role;
-        if (role === 'owner' || role === 'admin' || role === 'member') botRole = role;
-      } catch { /* ignore，保持 unknown */ }
+    if (isGroup && groupId !== undefined) {
+      botRole = await getBotRole(client, accountId, groupId, selfId);
     }
 
     // ── 回复上下文 ───────────────────────────────────────────────────────────

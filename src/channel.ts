@@ -230,6 +230,11 @@ export const napcatChannel: ChannelPlugin<ResolvedNapcatAccount> = {
         clients.delete(account.accountId);
       }
       accountConfigs.delete(account.accountId);
+      const db = databases.get(account.accountId);
+      if (db) {
+        db.close();
+        databases.delete(account.accountId);
+      }
       return { ok: true, cleared: true };
     },
   },

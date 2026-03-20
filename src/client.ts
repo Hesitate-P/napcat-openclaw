@@ -22,6 +22,8 @@ export interface NapCatClientConfig {
   maxReconnectDelay?: number;
   /** API 请求超时 (ms)，默认 30000 */
   apiTimeout?: number;
+  /** 最大重连次数，默认 10 */
+  maxReconnectAttempts?: number;
 }
 
 export type EventHandler<T = unknown> = (data: T) => void | Promise<void>;
@@ -50,13 +52,14 @@ export class NapCatClient {
 
   constructor(config: NapCatClientConfig) {
     this.cfg = {
-      wsUrl:              config.wsUrl,
-      accessToken:        config.accessToken,
-      heartbeatInterval:  config.heartbeatInterval  ?? 45_000,
-      heartbeatTimeout:   config.heartbeatTimeout   ?? 180_000,
-      reconnectDelay:     config.reconnectDelay      ?? 1_000,
-      maxReconnectDelay:  config.maxReconnectDelay   ?? 30_000,
-      apiTimeout:         config.apiTimeout          ?? 30_000,
+      wsUrl:                 config.wsUrl,
+      accessToken:           config.accessToken,
+      heartbeatInterval:     config.heartbeatInterval     ?? 45_000,
+      heartbeatTimeout:      config.heartbeatTimeout      ?? 180_000,
+      reconnectDelay:        config.reconnectDelay         ?? 1_000,
+      maxReconnectDelay:     config.maxReconnectDelay      ?? 30_000,
+      apiTimeout:            config.apiTimeout             ?? 30_000,
+      maxReconnectAttempts:  config.maxReconnectAttempts   ?? 10,
     };
   }
 
@@ -270,9 +273,8 @@ export class NapCatClient {
   }
 
   private scheduleReconnect(): void {
-    const MAX_ATTEMPTS = 10;
-    if (this.reconnectAttempts >= MAX_ATTEMPTS) {
-      console.error('[NapCatClient] 达到最大重连次数，放弃重连');
+    if (this.reconnectAttempts >= this.cfg.maxReconnectAttempts) {
+      console.error(`[NapCatClient] 达到最大重连次数 (${this.cfg.maxReconnectAttempts})，放弃重连`);
       return;
     }
     const delay = Math.min(
@@ -280,7 +282,7 @@ export class NapCatClient {
       this.cfg.maxReconnectDelay,
     );
     this.reconnectAttempts++;
-    console.log(`[NapCatClient] ${Math.round(delay / 1000)}s 后重连 (第 ${this.reconnectAttempts}/${MAX_ATTEMPTS} 次)`);
+    console.log(`[NapCatClient] ${Math.round(delay / 1000)}s 后重连 (第 ${this.reconnectAttempts}/${this.cfg.maxReconnectAttempts} 次)`);
     setTimeout(() => {
       if (!this.destroyed && this.status === 'disconnected') {
         this.setStatus('reconnecting');

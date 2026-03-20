@@ -173,17 +173,18 @@ export function clearGroupTypingCard(
 export async function cleanupGroupCards(client: NapCatClient): Promise<void> {
   const selfId = client.getSelfId();
 
-  for (const [key, baseCard] of groupBaseCard.entries()) {
-    // key 格式：accountId:groupId
-    const groupId = parseInt(key.split(':').pop() ?? '0', 10);
-    if (!groupId) continue;
-    try {
-      await client.sendAction('set_group_card', {
-        group_id: groupId,
-        user_id:  selfId,
-        card:     baseCard,
-      });
-    } catch { /* ignore */ }
+  if (selfId) {
+    for (const [key, baseCard] of groupBaseCard.entries()) {
+      const groupId = parseInt(key.split(':').pop() ?? '0', 10);
+      if (!groupId) continue;
+      try {
+        await client.sendAction('set_group_card', {
+          group_id: groupId,
+          user_id:  selfId,
+          card:     baseCard,
+        });
+      } catch { /* ignore */ }
+    }
   }
 
   groupRefCount.clear();
@@ -193,16 +194,4 @@ export async function cleanupGroupCards(client: NapCatClient): Promise<void> {
   for (const timer of privateTimers.values()) clearInterval(timer);
   privateTimers.clear();
   privateRefCount.clear();
-}
-
-// ── 兼容旧接口 ────────────────────────────────────────────────────────────────
-
-/** @deprecated 使用 startPrivateTyping / stopPrivateTyping */
-export async function setPrivateTyping(
-  client:   NapCatClient,
-  userId:   number,
-  isTyping: boolean,
-): Promise<void> {
-  if (isTyping) await startPrivateTyping(client, userId);
-  else          await stopPrivateTyping(client, userId);
 }
