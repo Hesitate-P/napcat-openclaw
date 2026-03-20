@@ -62,14 +62,14 @@ export const napcatChannel: ChannelPlugin<ResolvedNapcatAccount> = {
 
   config: {
     listAccountIds: (cfg) => {
-      const napcat = cfg.channels?.napcat;
+      const napcat = cfg.channels?.['napcat-channel'];
       if (!napcat) return [];
       if ((napcat as any).accounts) return Object.keys((napcat as any).accounts);
       return [DEFAULT_ACCOUNT_ID];
     },
     resolveAccount: (cfg, accountId) => {
       const id      = accountId ?? DEFAULT_ACCOUNT_ID;
-      const napcat  = cfg.channels?.napcat as any;
+      const napcat  = cfg.channels?.['napcat-channel'] as any;
       const accConf = id === DEFAULT_ACCOUNT_ID ? napcat : napcat?.accounts?.[id];
       return {
         accountId:   id,
