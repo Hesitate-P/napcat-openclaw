@@ -31,6 +31,7 @@ function buildSystemBlock(params: {
   groupId?:    number;
   senderName?: string;
   isAdminUser: boolean;
+  botRole?:    'owner' | 'admin' | 'member' | 'unknown';
 }): string {
   const chatType = params.isGroup ? 'group' : 'direct';
   const lines = [
@@ -40,6 +41,10 @@ function buildSystemBlock(params: {
     `isAdmin=${params.isAdminUser}`,
     `chatType=${chatType}`,
     params.isGroup ? `groupId=${params.groupId ?? ''}` : '',
+    params.isGroup ? `botRole=${params.botRole ?? 'unknown'}` : '',
+    params.isGroup && (params.botRole === 'owner' || params.botRole === 'admin')
+      ? 'botIsGroupAdmin=true'
+      : params.isGroup ? 'botIsGroupAdmin=false' : '',
     '</qq_context>',
   ].filter(Boolean);
 
@@ -139,6 +144,20 @@ export async function handleIncomingMessage(
       if (hist.length > 0) inboundHistory = hist;
     }
 
+    // ── 机器人群角色查询 ─────────────────────────────────────────────────────
+    let botRole: 'owner' | 'admin' | 'member' | 'unknown' = 'unknown';
+    if (isGroup && groupId !== undefined && selfId) {
+      try {
+        const memberInfo: any = await client.sendAction('get_group_member_info', {
+          group_id: groupId,
+          user_id:  selfId,
+          no_cache: false,
+        });
+        const role = memberInfo?.role;
+        if (role === 'owner' || role === 'admin' || role === 'member') botRole = role;
+      } catch { /* ignore，保持 unknown */ }
+    }
+
     // ── 回复上下文 ───────────────────────────────────────────────────────────
     let replyToBody: string | undefined;
     let replyToSender: string | undefined;
@@ -157,7 +176,7 @@ export async function handleIncomingMessage(
     }
 
     // ── 构建 payload ─────────────────────────────────────────────────────────
-    const systemBlock  = buildSystemBlock({ userId, isGroup, groupId, senderName, isAdminUser });
+    const systemBlock  = buildSystemBlock({ userId, isGroup, groupId, senderName, isAdminUser, botRole });
 
     // 群聊历史拼接到 BodyForAgent（InboundHistory 仅用于 SDK 统计，不渲染到 prompt）
     let contextStr = '';
