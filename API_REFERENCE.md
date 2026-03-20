@@ -633,7 +633,11 @@ node ~/.openclaw/workspace/skills/napcat-tools/scripts/napcat-tools.js <命令> 
 | API | 注意点 |
 |-----|--------|
 | `set_input_status` | `user_id` 必须为 **string** 类型，不能传 number |
-| `set_group_ban` | `group_id`/`user_id` 官方示例为 string，`duration` 为 number |
+| `set_group_ban` | `group_id`/`user_id` 必须为 **string** 类型（示例值 `'123456'`），`duration` 为 number |
+| `set_group_kick` | `group_id`/`user_id` 必须为 **string** 类型 |
+| `send_group_notice`/`get_group_notice`/`del_group_notice` | `group_id` 必须为 **string** 类型 |
+| `set_essence_msg`/`delete_essence_msg` | `message_id` 支持 number 或 string，建议传 **string** |
+| `get_essence_msg_list`/`get_group_member_list` | `group_id` 必须为 **string** 类型 |
 | `_get_group_notice` | 返回 `message.text`，需兼容 `.text`/`.content` fallback |
 | `get_group_msg_history` | 返回包含当前消息，需按 `message_id` 过滤后再使用 |
 | `get_friend_msg_history` | 参数为 `user_id`，非 `chat_id` |
