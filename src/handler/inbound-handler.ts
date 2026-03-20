@@ -206,13 +206,17 @@ export async function handleIncomingMessage(
       const lines = inboundHistory.map(h => `${h.sender}: ${h.body}`).join('\n');
       contextStr = `\n【群聊上下文】\n${lines}\n【当前消息】\n`;
     }
+    // 群聊当前消息发送者信息
+    const senderPrefix = isGroup
+      ? `${senderName}(${userId})：`
+      : '';
     // 回复上下文拼接
     let replyStr = '';
     if (replyToBody) {
       replyStr = `\n【回复的消息】${replyToSender ? `（${replyToSender}）` : ''}：${replyToBody}\n`;
     }
 
-    const bodyWithMeta = `${systemBlock}${contextStr}${replyStr}${fullContent}`;
+    const bodyWithMeta = `${systemBlock}${contextStr}${replyStr}${senderPrefix}${fullContent}`;
     const cleanBody    = fullContent;
 
     // ── Runtime & 路由 ───────────────────────────────────────────────────────

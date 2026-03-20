@@ -201,7 +201,7 @@ export async function resolveMessageText(
             });
             name = info?.card || info?.nickname || name;
           } catch { /* ignore */ }
-          parts.push(`@${name}`);
+          parts.push(`@${name}(${qqId})`);
         } else {
           parts.push(`@${qqId ?? ''}`);
         }
