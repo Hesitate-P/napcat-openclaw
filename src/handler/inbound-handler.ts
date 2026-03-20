@@ -108,7 +108,7 @@ async function fetchGroupHistory(
 ): Promise<Array<{ sender: string; body: string; timestamp: number }>> {
   try {
     const result: any = await client.sendAction('get_group_msg_history', {
-      group_id: groupId,
+      group_id: String(groupId),
       count: count + 1,
     });
     const messages: any[] = (result?.messages ?? []).filter(
