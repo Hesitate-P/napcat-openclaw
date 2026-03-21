@@ -40,8 +40,8 @@ async function getBotRole(
   if (cached && Date.now() < cached.expiresAt) return cached.role;
   try {
     const info: any = await client.sendAction('get_group_member_info', {
-      group_id: groupId,
-      user_id:  selfId,
+      group_id: String(groupId),
+      user_id:  String(selfId),
       no_cache: false,
     });
     const role = info?.role;
@@ -273,9 +273,19 @@ export async function handleIncomingMessage(
       }
 
       try {
+        let lastSentText = '';
         const deliver = async (payload: any): Promise<void> => {
           const msgs: Array<{ type: string; data: any }> = [];
-          if (payload.text?.trim()) msgs.push({ type: 'text', data: { text: payload.text } });
+          const text = payload.text?.trim() ?? '';
+          // 防重复：相同文本内容在同一次 trigger 里只发一次
+          if (text) {
+            if (text === lastSentText) {
+              console.warn('[InboundHandler] 检测到重复发送，已跳过:', text.slice(0, 50));
+              return;
+            }
+            lastSentText = text;
+            msgs.push({ type: 'text', data: { text } });
+          }
           const urls = payload.mediaUrls ?? payload.MediaUrls ?? payload.imageUrls ?? payload.images;
           if (Array.isArray(urls)) {
             for (const url of urls) {

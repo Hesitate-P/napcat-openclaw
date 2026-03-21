@@ -123,18 +123,22 @@ export class DatabaseManager {
     if (!this.db) throw new Error('数据库未初始化');
     return this.db.prepare(`
       SELECT
-        chat_type,
-        chat_id,
-        MAX(timestamp) as lastMessageTime,
-        COUNT(*)       as messageCount,
-        (SELECT user_name FROM messages m2
-         WHERE m2.chat_type = m1.chat_type AND m2.chat_id = m1.chat_id
-         ORDER BY timestamp DESC LIMIT 1) as lastUserName,
-        (SELECT content FROM messages m3
-         WHERE m3.chat_type = m1.chat_type AND m3.chat_id = m1.chat_id
-         ORDER BY timestamp DESC LIMIT 1) as lastContent
-      FROM messages m1
-      GROUP BY chat_type, chat_id
+        m.chat_type,
+        m.chat_id,
+        m.timestamp   AS lastMessageTime,
+        s.messageCount,
+        m.user_name   AS lastUserName,
+        m.content     AS lastContent
+      FROM messages m
+      INNER JOIN (
+        SELECT chat_type, chat_id,
+               MAX(timestamp) AS maxTs,
+               COUNT(*)       AS messageCount
+        FROM messages
+        GROUP BY chat_type, chat_id
+      ) s ON m.chat_type = s.chat_type
+         AND m.chat_id   = s.chat_id
+         AND m.timestamp = s.maxTs
       ORDER BY lastMessageTime DESC
     `).all() as any[];
   }
